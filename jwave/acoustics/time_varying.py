@@ -32,7 +32,11 @@ from jwave.logger import logger
 from jwave.signal_processing import smooth
 
 from .pml import td_pml_on_grid
-from .progress import progress_stride, report_simulation_progress
+from .progress import (
+    progress_stride,
+    report_simulation_progress,
+    reset_simulation_progress,
+)
 
 Any = TypeVar("Any")
 
@@ -58,6 +62,7 @@ class TimeWavePropagationSettings(Module):
     checkpoint: bool = eqx.field(static=True)
     smooth_initial: bool = eqx.field(static=True)
     show_progress: bool = eqx.field(static=True)
+    progress_interval_pct: float = eqx.field(static=True)
 
     def __init__(
         self,
@@ -65,6 +70,7 @@ class TimeWavePropagationSettings(Module):
         checkpoint: bool = True,
         smooth_initial: bool = True,
         show_progress: bool = False,
+        progress_interval_pct: float = 5.0,
     ):
         """
         Initializes a new instance of the TimeWavePropagationSettings class.
@@ -83,13 +89,16 @@ class TimeWavePropagationSettings(Module):
             show_progress (bool, static): Whether to display a
                 progress bar while the time loop runs. Works inside
                 JIT-compiled simulations via ``jax.debug.callback``.
-                Requires ``tqdm`` for a bar; otherwise prints periodic
-                status updates. Defaults to False.
+                Defaults to False.
+            progress_interval_pct (float, static): Report progress every
+                this many percent when ``show_progress`` is True (e.g.
+                ``5.0`` for 5%, ``1.0`` for 1%). Defaults to 5.0.
         """
         self.c_ref = c_ref
         self.checkpoint = checkpoint
         self.smooth_initial = smooth_initial
         self.show_progress = show_progress
+        self.progress_interval_pct = progress_interval_pct
 
 
 
@@ -470,7 +479,7 @@ def simulate_wave_propagation(
     # define functions to integrate
     fields = [p0, u0, rho]
     total_steps = int(time_axis.Nt)
-    report_stride = progress_stride(total_steps)
+    report_stride = progress_stride(total_steps, settings.progress_interval_pct)
 
     def _report_progress(step):
         debug.callback(
@@ -478,6 +487,7 @@ def simulate_wave_propagation(
             step,
             total_steps,
             "Wave propagation",
+            settings.progress_interval_pct,
         )
         return None
 
@@ -512,6 +522,9 @@ def simulate_wave_propagation(
 
     if settings.checkpoint:
         scan_fun = jax_checkpoint(scan_fun)
+
+    if settings.show_progress:
+        reset_simulation_progress()
 
     logger.debug("Starting simulation using generic OnGrid code")
     _, ys = scan(scan_fun, fields, output_steps)
@@ -641,7 +654,7 @@ def simulate_wave_propagation(
     # define functions to integrate
     fields = [p0, u0, rho]
     total_steps = int(time_axis.Nt)
-    report_stride = progress_stride(total_steps)
+    report_stride = progress_stride(total_steps, settings.progress_interval_pct)
 
     def _report_progress(step):
         debug.callback(
@@ -649,6 +662,7 @@ def simulate_wave_propagation(
             step,
             total_steps,
             "Wave propagation",
+            settings.progress_interval_pct,
         )
         return None
 
@@ -690,6 +704,9 @@ def simulate_wave_propagation(
     # Define the scanning function according to the checkpoint type
     if settings.checkpoint:
         scan_fun = jax_checkpoint(scan_fun)
+
+    if settings.show_progress:
+        reset_simulation_progress()
 
     logger.debug("Starting simulation using FourierSeries code")
     _, ys = scan(scan_fun, fields, output_steps)

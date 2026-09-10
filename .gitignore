@@ -35,3 +35,4 @@ docs/benchmarks/kwave/*.png
 *.env.development.local
 *.env.test.local
 *.env.production.local
+*.vtk
