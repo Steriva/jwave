@@ -41,6 +41,20 @@ def test_correct_call():
     assert "Starting simulation using FourierSeries code" in log_contents
 
 
+def test_show_progress_runs():
+    domain = Domain((32, 32), (1e-3, 1e-3))
+    medium = Medium(domain, sound_speed=1500.0, pml_size=0)
+    time_axis = TimeAxis.from_medium(medium, cfl=0.2)
+    time_axis.t_end = 2e-6
+    settings = TimeWavePropagationSettings(
+        smooth_initial=False,
+        show_progress=True,
+    )
+
+    p = simulate_wave_propagation(medium, time_axis, settings=settings)
+    assert p is not None
+
+
 def test_fd_nondefault_accuracy():
     """Regression test for jwave#224: FD fields with accuracy != 8
     must not cause pytree mismatch in lax.scan."""

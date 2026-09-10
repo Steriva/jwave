@@ -18,8 +18,9 @@ from typing import Callable, Dict, Tuple, TypeVar, Union
 import equinox as eqx
 import numpy as np
 from jax import checkpoint as jax_checkpoint
+from jax import debug
 from jax import numpy as jnp
-from jax.lax import scan
+from jax.lax import cond, scan
 from jaxdf import Field, operator
 from jaxdf.discretization import FourierSeries, Linear, OnGrid
 from jaxdf.mods import Module
@@ -31,6 +32,7 @@ from jwave.logger import logger
 from jwave.signal_processing import smooth
 
 from .pml import td_pml_on_grid
+from .progress import progress_stride, report_simulation_progress
 
 Any = TypeVar("Any")
 
@@ -55,12 +57,14 @@ class TimeWavePropagationSettings(Module):
     c_ref: Callable = eqx.field(static=True)
     checkpoint: bool = eqx.field(static=True)
     smooth_initial: bool = eqx.field(static=True)
+    show_progress: bool = eqx.field(static=True)
 
     def __init__(
         self,
         c_ref: Callable = lambda m: m.max_sound_speed,
         checkpoint: bool = True,
         smooth_initial: bool = True,
+        show_progress: bool = False,
     ):
         """
         Initializes a new instance of the TimeWavePropagationSettings class.
@@ -76,10 +80,16 @@ class TimeWavePropagationSettings(Module):
             smooth_initial (bool, static): Flag to determine
                 whether to smooth initial pressure and velocity
                 fields. Defaults to True.
+            show_progress (bool, static): Whether to display a
+                progress bar while the time loop runs. Works inside
+                JIT-compiled simulations via ``jax.debug.callback``.
+                Requires ``tqdm`` for a bar; otherwise prints periodic
+                status updates. Defaults to False.
         """
         self.c_ref = c_ref
         self.checkpoint = checkpoint
         self.smooth_initial = smooth_initial
+        self.show_progress = show_progress
 
 
 
@@ -459,8 +469,27 @@ def simulate_wave_propagation(
 
     # define functions to integrate
     fields = [p0, u0, rho]
+    total_steps = int(time_axis.Nt)
+    report_stride = progress_stride(total_steps)
+
+    def _report_progress(step):
+        debug.callback(
+            report_simulation_progress,
+            step,
+            total_steps,
+            "Wave propagation",
+        )
+        return None
 
     def scan_fun(fields, n):
+        if settings.show_progress:
+            cond(
+                jnp.logical_or(n % report_stride == 0, n + 1 >= total_steps),
+                lambda _: _report_progress(n),
+                lambda _: None,
+                operand=None,
+            )
+
         p, u, rho = fields
         if sources is None:
             mass_src_field = 0.0
@@ -611,8 +640,27 @@ def simulate_wave_propagation(
 
     # define functions to integrate
     fields = [p0, u0, rho]
+    total_steps = int(time_axis.Nt)
+    report_stride = progress_stride(total_steps)
+
+    def _report_progress(step):
+        debug.callback(
+            report_simulation_progress,
+            step,
+            total_steps,
+            "Wave propagation",
+        )
+        return None
 
     def scan_fun(fields, n):
+        if settings.show_progress:
+            cond(
+                jnp.logical_or(n % report_stride == 0, n + 1 >= total_steps),
+                lambda _: _report_progress(n),
+                lambda _: None,
+                operand=None,
+            )
+
         p, u, rho = fields
         if sources is None:
             mass_src_field = 0.0
